@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from torch import Tensor, IntTensor, FloatTensor
 
 class TokenMasking(nn.Module):
     def __init__(self, p:float=0.1, mask_value=0):
@@ -109,24 +110,24 @@ class QuantileTokenization(nn.Module):
     def max_token_id(self) -> int:
         """
         Returns the maximum possible token ID based on the number of quantiles used for bucketization.
-        +1 Cause we keep 0 token for maskeing, or smth
+        +1 Cause we keep 0 token for masking, or smth
         """
         ts = self.q_num * self.f_num + 1
         return ts
     
     @property
-    def output_dim(self) -> int:
+    def out_dim(self) -> int:
         if self.mode == 'flatten':
             return self.embedding_dim * self.f_num
         else:
             return self.embedding_dim
     
-    def fit(self, x: torch.Tensor) -> 'QuantileTokenization':
+    def fit(self, x: Tensor) -> 'QuantileTokenization':
         """
         Fits the module to the quantile distribution of `x`.
 
         Args:
-            x (torch.Tensor): The tensor to fit the module to.
+            x (Tensor): The tensor to fit the module to.
             
         Returns:
             The fitted module.
@@ -137,6 +138,9 @@ class QuantileTokenization(nn.Module):
             b, t, f = x.shape
             x = torch.reshape(x, (b*t, f))
         
+        if x.ndim in (2, 3):
+            assert x.size(-1) == self.f_num
+            
         # Calculate boundaries using quantiles
         if x.dtype in [torch.int64, torch.int32]:
             boundaries = torch.quantile(x.double(), torch.tensor(self.quantiles, dtype=torch.double, device=x.device), dim=0).type_as(x)
@@ -193,7 +197,7 @@ class QuantileTokenization(nn.Module):
         
         return quantized
     
-    def embed(self, x: torch.IntTensor) -> torch.FloatTensor:
+    def embed(self, x: IntTensor) -> FloatTensor:
         assert x.ndim in (1, 2, 3)
 
         embs = self.emb(x)
@@ -207,7 +211,7 @@ class QuantileTokenization(nn.Module):
 
         return embs
     
-    def forward(self, x: torch.Tensor) -> torch.FloatTensor:
+    def forward(self, x: FloatTensor) -> FloatTensor:
         assert x.ndim in (1, 2, 3)
     
         bucketized = self.bucketize(x)
@@ -215,4 +219,5 @@ class QuantileTokenization(nn.Module):
         return embs
 
     def extra_repr(self) -> str:
-        return 'f_num={} | q_num={} | embed_dim={}'.format(self.f_num, self.q_num, self.embedding_dim)
+        q_repr = f"quantiles={self.quantiles}" if self.custom_quantiles else f"q_num={self.q_num}"
+        return 'f_num={} | {} | embed_dim={} | mode={}'.format(self.f_num, q_repr, self.embedding_dim, self.mode)
