@@ -60,14 +60,18 @@ class QuantileTokenization(nn.Module):
     To use this module, first fit it to the feature distribution of the entire training corpus
     by calling the `fit()` method. This works for any: 1D or 2D vector.
     """
-    def __init__(self, q_num: int, f_num: int, embedding_dim: int, mode='mean', init:str='none', init_kwargs:dict={}, max_norm:float=None, token_masking:float=0):
+    def __init__(
+        self, q_num: int|list, f_num: int, embedding_dim: int, 
+        mode='mean', init:str='none', init_kwargs:dict={}, 
+        max_norm:float=None, token_masking:float=0, dropout:float=0,
+        ):
         """    
         Args:
-        - q_num (int): The number of quantiles to use for bucketization.
+        - q_num (int, list): The number of quantiles or list of quantiles to use for bucketization.
         - f_num (int): The number of features in the input data.
         - embedding_dim (int): The dimension of the learned embedding.
         - mode (str): The method used to calculate the output representation. It can be one of
-        'mean', 'sum', or 'flatten' (default is 'mean').
+        'mean', 'sum', `none`, or 'flatten' (default is 'mean').
 
         Attributes:
         - boundaries (nn.Parameter): The learned boundaries between the quantiles.
@@ -76,12 +80,30 @@ class QuantileTokenization(nn.Module):
         super(QuantileTokenization, self).__init__()
         assert mode in ['none', 'mean', 'sum', 'flatten']
         
+        if isinstance(q_num, list):
+            self.custom_quantiles = True
+
+            quantiles, q_num = q_num, len(q_num)
+            for q in quantiles: assert 0 <= q <= 1
+            quantiles.sort()
+
+        else:
+            self.custom_quantiles = False
+
+            q_step = 1/q_num
+            quantiles = torch.arange(q_step, 1+1/q_num, q_step).tolist()
+
         self.mode = mode
         self.q_num = q_num
         self.f_num = f_num
+        self.quantiles: list[float] = quantiles
         self.embedding_dim = embedding_dim
         self.boundaries = nn.Parameter(torch.empty(f_num,  q_num), requires_grad=False)
-        self.emb = Embedding(self.max_token_id + 1, embedding_dim, init=init, init_kwargs=init_kwargs, max_norm=max_norm, token_masking=token_masking)
+        self.emb = Embedding(
+            self.max_token_id + 1, embedding_dim, 
+            init=init,  init_kwargs=init_kwargs, max_norm=max_norm, 
+            token_masking=token_masking, dropout=dropout
+        )
 
     @property
     def max_token_id(self) -> int:
@@ -116,12 +138,10 @@ class QuantileTokenization(nn.Module):
             x = torch.reshape(x, (b*t, f))
         
         # Calculate boundaries using quantiles
-        q_step = 1/self.q_num
-        
         if x.dtype in [torch.int64, torch.int32]:
-            boundaries = torch.quantile(x.double(), torch.arange(q_step, 1+q_step, q_step, dtype=torch.double), dim=0).type_as(x)
+            boundaries = torch.quantile(x.double(), torch.tensor(self.quantiles, dtype=torch.double, device=x.device), dim=0).type_as(x)
         else:
-            boundaries = torch.quantile(x, torch.arange(q_step, 1+q_step, q_step, dtype=x.dtype), dim=0)
+            boundaries = torch.quantile(x, torch.tensor(self.quantiles, dtype=x.dtype, device=x.device), dim=0)
         
         if boundaries.ndim == 2:
             boundaries.swapaxes_(0, 1)
