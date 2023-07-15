@@ -117,18 +117,18 @@ class QuantileTokenization(nn.Module):
         # |boundaries| - (self.f_num, self.q_num)
         return self
     
-    def bucketize(self, x: torch.Tensor) -> torch.IntTensor:
+    def bucketize(self, x: Tensor) -> IntTensor:
         assert x.ndim in (1, 2, 3)
         in_shape = x.shape
 
         if self.f_num == 1:
-            _x = x.view(-1).unsqueeze(0)
+            _x = x.view(-1).unsqueeze(0).contiguous()
         elif x.ndim == 3:
             b, t, f = in_shape
             _x = torch.reshape(x, (b*t, f))
-            _x = _x.swapaxes(0, 1)
+            _x = _x.swapaxes(0, 1).contiguous()
         elif x.ndim == 2:
-            _x = x.swapaxes(0, 1)
+            _x = x.swapaxes(0, 1).contiguous()
         else:
             _x = x
             
