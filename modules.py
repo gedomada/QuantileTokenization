@@ -195,7 +195,7 @@ class QuantileTokenization(nn.Module):
         if x.ndim == 3:
             quantized = torch.reshape(quantized, (b, t, f))
         
-        return quantized
+        return quantized.contiguous()
     
     def embed(self, x: IntTensor) -> FloatTensor:
         assert x.ndim in (1, 2, 3)
