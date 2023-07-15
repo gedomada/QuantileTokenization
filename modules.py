@@ -13,29 +13,44 @@ class TokenMasking(nn.Module):
             x = torch.where(mask, x, self.mask_value)
         return x
     
-class Embedding(nn.Module):
-    def __init__(self, num_embeddings, embedding_dim, dropout:float=0., init:str='none', init_kwargs:dict={}, max_norm:float=None, padding_idx:int=None, token_masking:float=0.):
-        super(Embedding, self).__init__()
+class Embedding(nn.Embedding):
+    def __init__(
+            self, num_embeddings, embedding_dim, 
+            max_norm:float=None, padding_idx:int=None, 
+            dropout:float=0., token_masking:float=0.,
+            init:str='none', init_kwargs:dict={}, 
+            layernorm:bool=False,
+        ):
+        self.norm = layernorm
+        self.pad = padding_idx is None and token_masking > 0
+
+        super(Embedding, self).__init__(num_embeddings+ self.pad, embedding_dim, max_norm=max_norm, padding_idx=padding_idx)
         assert init in ['none', 'kaiming_uniform', 'uniform', 'normal']
 
-        self.embedding_dim = embedding_dim
-        self.embeddings = nn.Embedding(num_embeddings, embedding_dim, max_norm=max_norm, padding_idx=padding_idx)
         self.dropout = nn.Dropout(dropout)
         self.masking = TokenMasking(p=token_masking, mask_value=0 if padding_idx is None else padding_idx)
+    
+        if layernorm:
+            self.layernorm = nn.LayerNorm(embedding_dim)
 
         if init == 'kaiming_uniform':
-            nn.init.kaiming_uniform_(self.embeddings.weight, **init_kwargs)
+            nn.init.kaiming_uniform_(self.weight, **init_kwargs)
         elif init == 'uniform':
-            nn.init.uniform_(self.embeddings.weight, **init_kwargs)
+            nn.init.uniform_(self.weight, **init_kwargs)
         elif init == 'normal':
-            nn.init.normal_(self.embeddings.weight, **init_kwargs)
+            nn.init.normal_(self.weight, **init_kwargs)
 
-    def forward(self, inputs: torch.IntTensor | torch. FloatTensor) -> torch.Tensor:
+    def forward(self, inputs: IntTensor) -> FloatTensor:
         # |inputs| : (*)
-        outputs = self.masking(inputs)
-        outputs = self.embeddings(outputs)
+        outputs = self.masking(inputs + 1 if self.pad else inputs)
+        outputs = super().forward(outputs)
         outputs = self.dropout(outputs)
         # |outputs| : (*, H), where H - embedding_dim
+
+        if self.norm:
+            outputs = self.layernorm(outputs)
+        # |outputs| : (*, H), where H - embedding_dim
+
         return outputs
     
 class QuantileTokenization(nn.Module):
